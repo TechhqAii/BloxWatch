@@ -2,6 +2,7 @@
 
 // Config
 const API_BASE = '/api/roblox';
+const CORS_PROXY = 'https://corsproxy.io/?url=';
 const REFRESH_INTERVAL = 30; // seconds
 const PRESENCE_TYPES = {
     0: { label: 'Offline', class: 'offline', icon: '🔴' },
@@ -247,17 +248,60 @@ async function loadFriends() {
     const container = document.getElementById('friendsList');
 
     try {
-        const data = await robloxGet('friends', `v1/users/${currentUserId}/friends`);
-        const friends = data.data || [];
+        // Roblox blocks friends API from datacenter IPs (Vercel).
+        // Use a public CORS proxy to route requests from the browser directly.
+        let friends = [];
+        let friendCount = 0;
 
-        document.getElementById('friendCount').textContent = friends.length;
+        // Strategy 1: Try CORS proxy (browser → corsproxy → Roblox)
+        try {
+            const corsUrl = `${CORS_PROXY}${encodeURIComponent(`https://friends.roblox.com/v1/users/${currentUserId}/friends`)}`;
+            const res = await fetch(corsUrl);
+            if (res.ok) {
+                const data = await res.json();
+                friends = data.data || [];
+            }
+        } catch (e) {
+            console.warn('CORS proxy failed for friends, trying Vercel proxy:', e);
+        }
 
+        // Strategy 2: Fallback to our Vercel proxy
         if (friends.length === 0) {
-            container.innerHTML = `<div class="timeline-empty"><p>No friends found.</p></div>`;
+            try {
+                const data = await robloxGet('friends', `v1/users/${currentUserId}/friends`);
+                friends = data.data || [];
+            } catch (e) {
+                console.warn('Vercel proxy also failed for friends:', e);
+            }
+        }
+
+        // Get friend count separately (this endpoint may be more accessible)
+        try {
+            const corsCountUrl = `${CORS_PROXY}${encodeURIComponent(`https://friends.roblox.com/v1/users/${currentUserId}/friends/count`)}`;
+            const countRes = await fetch(corsCountUrl);
+            if (countRes.ok) {
+                const countData = await countRes.json();
+                friendCount = countData.count || friends.length;
+            } else {
+                friendCount = friends.length;
+            }
+        } catch (e) {
+            friendCount = friends.length;
+        }
+
+        document.getElementById('friendCount').textContent = friendCount;
+
+        if (friends.length === 0 && friendCount > 0) {
+            container.innerHTML = `<div class="timeline-empty"><p>${friendCount} friends found but list is restricted by Roblox privacy settings.</p></div>`;
             return;
         }
 
-        // Get thumbnails for friends (batch, max 100)
+        if (friends.length === 0) {
+            container.innerHTML = `<div class="timeline-empty"><p>No friends found or list is private.</p></div>`;
+            return;
+        }
+
+        // Get thumbnails for friends (batch, max 50)
         const friendIds = friends.slice(0, 50).map(f => f.id);
         let thumbnails = {};
         try {
