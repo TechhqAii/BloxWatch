@@ -248,56 +248,49 @@ async function loadFriends() {
     const container = document.getElementById('friendsList');
 
     try {
-        // Roblox blocks friends API from datacenter IPs (Vercel).
-        // Use a public CORS proxy to route requests from the browser directly.
         let friends = [];
         let friendCount = 0;
 
-        // Strategy 1: Try CORS proxy (browser → corsproxy → Roblox)
+        // Try to get friend list via our improved Vercel proxy
         try {
-            const corsUrl = `${CORS_PROXY}${encodeURIComponent(`https://friends.roblox.com/v1/users/${currentUserId}/friends`)}`;
-            const res = await fetch(corsUrl);
-            if (res.ok) {
-                const data = await res.json();
-                friends = data.data || [];
-            }
+            const data = await robloxGet('friends', `v1/users/${currentUserId}/friends`);
+            friends = data.data || [];
         } catch (e) {
-            console.warn('CORS proxy failed for friends, trying Vercel proxy:', e);
+            console.warn('Friends list request failed:', e);
         }
 
-        // Strategy 2: Fallback to our Vercel proxy
-        if (friends.length === 0) {
-            try {
-                const data = await robloxGet('friends', `v1/users/${currentUserId}/friends`);
-                friends = data.data || [];
-            } catch (e) {
-                console.warn('Vercel proxy also failed for friends:', e);
-            }
-        }
-
-        // Get friend count separately (this endpoint may be more accessible)
+        // Get friend count separately (may succeed even if list doesn't)
         try {
-            const corsCountUrl = `${CORS_PROXY}${encodeURIComponent(`https://friends.roblox.com/v1/users/${currentUserId}/friends/count`)}`;
-            const countRes = await fetch(corsCountUrl);
-            if (countRes.ok) {
-                const countData = await countRes.json();
-                friendCount = countData.count || friends.length;
-            } else {
-                friendCount = friends.length;
-            }
+            const countData = await robloxGet('friends', `v1/users/${currentUserId}/friends/count`);
+            friendCount = countData.count || friends.length;
         } catch (e) {
             friendCount = friends.length;
         }
 
-        document.getElementById('friendCount').textContent = friendCount;
+        // If friend count is still 0, try followers count as a social metric
+        let followersCount = 0;
+        try {
+            const followData = await robloxGet('friends', `v1/users/${currentUserId}/followers/count`);
+            followersCount = followData.count || 0;
+        } catch (e) { /* ignore */ }
 
-        if (friends.length === 0 && friendCount > 0) {
-            container.innerHTML = `<div class="timeline-empty"><p>${friendCount} friends found but list is restricted by Roblox privacy settings.</p></div>`;
+        document.getElementById('friendCount').textContent = friendCount || followersCount || 0;
+
+        if (friends.length === 0 && (friendCount > 0 || followersCount > 0)) {
+            container.innerHTML = `
+                <div class="timeline-empty">
+                    <p><strong>${friendCount}</strong> friend${friendCount !== 1 ? 's' : ''} · <strong>${followersCount}</strong> follower${followersCount !== 1 ? 's' : ''}</p>
+                    <p style="margin-top:6px;font-size:0.8rem;color:var(--text-muted);">Friend list details require Roblox authentication. <a href="https://www.roblox.com/users/${currentUserId}/friends" target="_blank" style="color:var(--accent);">View on Roblox →</a></p>
+                </div>`;
             return;
         }
 
         if (friends.length === 0) {
-            container.innerHTML = `<div class="timeline-empty"><p>No friends found or list is private.</p></div>`;
+            container.innerHTML = `
+                <div class="timeline-empty">
+                    <p>No friends data available.</p>
+                    <p style="margin-top:6px;font-size:0.8rem;color:var(--text-muted);"><a href="https://www.roblox.com/users/${currentUserId}/friends" target="_blank" style="color:var(--accent);">View friends on Roblox →</a></p>
+                </div>`;
             return;
         }
 

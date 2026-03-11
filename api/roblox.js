@@ -29,22 +29,35 @@ export default async function handler(req, res) {
     const fetchOptions = {
       method: req.method,
       headers: {
-        'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://www.roblox.com/',
-        'Origin': 'https://www.roblox.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-site',
       },
     };
 
-    if (req.method === 'POST' && req.body) {
-      fetchOptions.body = JSON.stringify(req.body);
+    // Only set Content-Type for POST requests
+    if (req.method === 'POST') {
+      fetchOptions.headers['Content-Type'] = 'application/json';
+      if (req.body) {
+        fetchOptions.body = JSON.stringify(req.body);
+      }
     }
 
     const response = await fetch(targetUrl, fetchOptions);
-    const data = await response.json();
 
-    return res.status(response.status).json(data);
+    // Try to parse JSON, return raw text if that fails
+    const text = await response.text();
+    try {
+      const data = JSON.parse(text);
+      return res.status(response.status).json(data);
+    } catch (e) {
+      return res.status(response.status).send(text);
+    }
   } catch (error) {
     console.error('Roblox proxy error:', error);
     return res.status(500).json({ error: 'Failed to proxy request to Roblox API' });
